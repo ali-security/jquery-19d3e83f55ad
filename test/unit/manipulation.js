@@ -2458,6 +2458,13 @@ asyncTest( "Sanitized HTML doesn't get unsanitized", function() {
 			"<foo\" alt=\"\" title=\"/><img src=url404 onerror=xss(XSS_ID)>\">",
 			"<img alt=\"<x\" title=\"\" src=\"/><img src=url404 onerror=xss(XSS_ID)>\">",
 			"<noscript/><img src=url404 onerror=xss(XSS_ID)>",
+			"<option><style></option></select><img src=url404 onerror=xss(XSS_ID)></style>",
+			"<optgroup><style></optgroup></select><img src=url404 onerror=xss(XSS_ID)></style>",
+
+			// A "</select>" in <option>/<optgroup> markup must not close a wrapper
+			// and turn inert SVG content into a raw text element (gh-4647)
+			"<option><svg></select><style><a title=\"</style><img src=url404 onerror=xss(XSS_ID)>\">",
+			"<optgroup><svg></select><style><a title=\"</style><img src=url404 onerror=xss(XSS_ID)>\">",
 			"<noembed><noembed/><img src=url404 onerror=xss(XSS_ID)>"
 		];
 
@@ -2497,4 +2504,46 @@ asyncTest( "Sanitized HTML doesn't get unsanitized", function() {
 
 		start();
 	}, 1000 );
+});
+
+test( "<option> and <optgroup> are not parsed inside a <select> wrapper unless required (gh-4647)", function() {
+
+	var tags = [ "option", "optgroup" ],
+		methods = {
+			"html": function( html ) {
+				return jQuery("<div></div>").html( html ).children();
+			},
+			"append": function( html ) {
+				return jQuery("<div></div>").append( html ).children();
+			},
+			"jQuery.parseHTML": function( html ) {
+				return jQuery( jQuery.parseHTML( html ) );
+			}
+		},
+		probe = document.createElement("div");
+
+	expect( tags.length * 3 * 3 );
+
+	// Support: IE<=9 only
+	// Only browsers dropping <option> outside of a <select> still need the wrapper
+	probe.innerHTML = "<option></option>";
+
+	jQuery.each( tags, function( i, tag ) {
+		jQuery.each( methods, function( method, parse ) {
+			var html = "<" + tag + "></" + tag + "></select><b>after</b>",
+				children = parse( html );
+
+			if ( probe.lastChild ) {
+				equal( children.length, 2, method + "(): " + html + " - markup can't close a wrapper" );
+				equal( children[ 0 ] && children[ 0 ].nodeName.toLowerCase(), tag,
+					method + "(): " + html + " - the " + tag + " element is kept" );
+				equal( children[ 1 ] && children[ 1 ].nodeName.toLowerCase(), "b",
+					method + "(): " + html + " - trailing content stays in place" );
+			} else {
+				ok( true, "<" + tag + "> requires a <select> wrapper in this browser" );
+				ok( true, "<" + tag + "> requires a <select> wrapper in this browser" );
+				ok( true, "<" + tag + "> requires a <select> wrapper in this browser" );
+			}
+		});
+	});
 });
