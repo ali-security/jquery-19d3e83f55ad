@@ -1615,7 +1615,7 @@ function testHtml( valueObj ) {
 		div = jQuery("<div></div>"),
 		fixture = jQuery("#qunit-fixture");
 
-	div.html( valueObj("<div id='parent_1'><div id='child_1'/></div><div id='parent_2'/>") );
+	div.html( valueObj("<div id='parent_1'><div id='child_1'></div></div><div id='parent_2'></div>") );
 	equal( div.children().length, 2, "Found children" );
 	equal( div.children().children().length, 1, "Found grandchild" );
 
@@ -2231,7 +2231,7 @@ test( "Guard against exceptions when clearing safeChildNodes", function() {
 	var div;
 
 	try {
-		div = jQuery("<div/><hr/><code/><b/>");
+		div = jQuery("<div></div><hr/><code></code><b></b>");
 	} catch(e) {}
 
 	ok( div && div.jquery, "Created nodes safely, guarded against exceptions on safeChildNodes[ -1 ]" );
@@ -2348,7 +2348,7 @@ test( "script evaluation (#11795)", function() {
 
 	if ( jQuery.ajax ) {
 		Globals.register("testBar");
-		jQuery("#qunit-fixture").append( "<script src='" + url("data/testbar.php") + "'/>" );
+		jQuery("#qunit-fixture").append( "<script src='" + url("data/testbar.php") + "'></script>" );
 		strictEqual( window["testBar"], "bar", "Global script evaluation" );
 	} else {
 		ok( true, "No jQuery.ajax" );
@@ -2370,7 +2370,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 		equal( ( input.url || input ).slice( -1 ), expectedArgument, message );
 		expectedArgument++;
 	};
-	jQuery("#qunit-fixture").append("<script src='1'/><script src='2'/>");
+	jQuery("#qunit-fixture").append("<script src='1'></script><script src='2'></script>");
 	equal( expectedArgument, 3, "synchronous execution" );
 
 	message = "custom implementation";
@@ -2379,7 +2379,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 	jQuery.ajax = function( options ) {
 		strictEqual( options, {}, "Unexpected call to jQuery.ajax" );
 	};
-	jQuery("#qunit-fixture").append("<script src='3'/><script src='4'/>");
+	jQuery("#qunit-fixture").append("<script src='3'></script><script src='4'></script>");
 
 	jQuery.ajax = ajax;
 	jQuery._evalUrl = evalUrl;
@@ -2422,7 +2422,7 @@ test( "insertAfter, insertBefore, etc do not work when destination is original e
 test( "Index for function argument should be received (#13094)", 2, function() {
 	var i = 0;
 
-	jQuery("<div/><div/>").before(function( index ) {
+	jQuery("<div></div><div></div>").before(function( index ) {
 		equal( index, i++, "Index should be correct" );
 	});
 
@@ -2435,4 +2435,66 @@ test( "Make sure jQuery.fn.remove can work on elements in documentFragment", 1, 
 	jQuery( div ).remove();
 
 	equal( fragment.childNodes.length, 0, "div element was removed from documentFragment" );
+});
+
+asyncTest( "Sanitized HTML doesn't get unsanitized", function() {
+
+	var container, controlId,
+		counter = 0,
+		executed = {},
+		inputs = [],
+
+		// Thanks to Masato Kinugawa from Cure53 for providing the following test cases.
+		// XSS_ID is replaced with a unique id for every insertion.
+		htmlStrings = [
+			"<img alt=\"<x\" title=\"/><img src=url404 onerror=xss(XSS_ID)>\">",
+			"<img alt=\"\n<x\" title=\"/>\n<img src=url404 onerror=xss(XSS_ID)>\">",
+			"<style><style/><img src=url404 onerror=xss(XSS_ID)>",
+			"<xmp><xmp/><img src=url404 onerror=xss(XSS_ID)>",
+			"<title><title /><img src=url404 onerror=xss(XSS_ID)>",
+			"<iframe><iframe/><img src=url404 onerror=xss(XSS_ID)>",
+			"<noframes><noframes/><img src=url404 onerror=xss(XSS_ID)>",
+			"<noscript><noscript/><img src=url404 onerror=xss(XSS_ID)>",
+			"<foo\" alt=\"\" title=\"/><img src=url404 onerror=xss(XSS_ID)>\">",
+			"<img alt=\"<x\" title=\"\" src=\"/><img src=url404 onerror=xss(XSS_ID)>\">",
+			"<noscript/><img src=url404 onerror=xss(XSS_ID)>",
+			"<noembed><noembed/><img src=url404 onerror=xss(XSS_ID)>"
+		];
+
+	expect( htmlStrings.length * 2 + 1 );
+
+	Globals.register("xss");
+	window.xss = function( id ) {
+		executed[ id ] = true;
+	};
+
+	container = jQuery("<div></div>").appendTo("#qunit-fixture");
+
+	function insert( method, htmlString ) {
+		var id = counter++;
+
+		inputs[ id ] = method + "() input: " + htmlString;
+		jQuery("<div></div>").appendTo( container )[ method ]( htmlString.replace( "XSS_ID", id ) );
+
+		return id;
+	}
+
+	jQuery.each( htmlStrings, function( i, htmlString ) {
+		insert( "html", htmlString );
+		insert( "append", htmlString );
+	});
+
+	// An unsanitized payload has to be detected, so the checks below can fail
+	controlId = insert( "html", "<img src=url404 onerror=xss(XSS_ID)>" );
+
+	setTimeout(function() {
+		var id;
+
+		for ( id = 0; id < controlId; id++ ) {
+			ok( !executed[ id ], "Insecure code wasn't executed, " + inputs[ id ] );
+		}
+		ok( executed[ controlId ], "Insecure code from unsanitized HTML was executed" );
+
+		start();
+	}, 1000 );
 });
